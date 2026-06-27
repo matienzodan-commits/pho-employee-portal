@@ -3,7 +3,7 @@ import Login from "./pages/Login";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import LeaveApplication from "./pages/LeaveApplication";
-import Scanner from "./pages/scanner"; // Import natin ang bagong scanner page
+import Scanner from "./pages/Scanner"; // Import natin ang bagong scanner page
 import { AuthProvider } from "./pages/AuthContext";
 
 function App() {
