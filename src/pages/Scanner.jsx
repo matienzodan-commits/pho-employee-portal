@@ -43,6 +43,11 @@ const Scanner = () => {
         const currentMinutes = h * 60 + m;
         const localDate = now.toLocaleDateString('en-CA');
 
+        // Business Logic Constants
+        const START_OF_DAY = 480; // 08:00 AM
+        const END_OF_DAY = 1020;  // 05:00 PM
+        const LATE_CUTOFF = 660;  // 11:00 AM
+
         // 2. Verify Employee
         const { data: employee, error: empError } = await supabase
           .from('employees')
@@ -65,9 +70,11 @@ const Scanner = () => {
           .maybeSingle();
 
         if (existingRecord) {
-          // TIME OUT: Target 17:00 (1020 minutes)
-          const targetOut = 1020;
-          const undertime = Math.max(0, targetOut - currentMinutes);
+          // TIME OUT: Calculate undertime only if scanning between 8am and 5pm
+          let undertime = 0;
+          if (currentMinutes > START_OF_DAY && currentMinutes < END_OF_DAY) {
+            undertime = END_OF_DAY - currentMinutes;
+          }
           
           const { error: upErr } = await supabase
             .from('attendance')
@@ -75,11 +82,13 @@ const Scanner = () => {
             .eq('id', existingRecord.id);
 
           if (upErr) throw upErr;
-          setStatusMessage(`✅ Time-Out recorded for ${employee.full_name} (${undertime > 0 ? undertime + 'm undertime' : 'No undertime'})`);
+          setStatusMessage(`✅ Time-Out recorded for ${employee.full_name}.`);
         } else {
-          // TIME IN: Target 08:00 (480 minutes)
-          const targetIn = 480;
-          const late = Math.max(0, currentMinutes - targetIn);
+          // TIME IN: Calculate late only if scanning between 8am and 11am
+          let late = 0;
+          if (currentMinutes > START_OF_DAY && currentMinutes <= LATE_CUTOFF) {
+            late = currentMinutes - START_OF_DAY;
+          }
           
           const { error: inErr } = await supabase
             .from('attendance')
@@ -93,7 +102,7 @@ const Scanner = () => {
             }]);
 
           if (inErr) throw inErr;
-          setStatusMessage(`✅ Time-In recorded for ${employee.full_name} (${late > 0 ? late + 'm late' : 'On time'})`);
+          setStatusMessage(`✅ Time-In recorded for ${employee.full_name}.`);
         }
 
       } catch (err) {
