@@ -6,12 +6,10 @@ const Scanner = () => {
   const [statusMessage, setStatusMessage] = useState("Ready to scan...");
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Refs para maiwasan ang paulit-ulit na scan ng iisang tao sa loob ng maikling oras
   const lastScannedId = useRef(null);
   const lastScannedTime = useRef(0);
 
   useEffect(() => {
-    // I-initialize ang camera scanner UI
     const scanner = new Html5QrcodeScanner("reader", {
       fps: 10,
       qrbox: { width: 250, height: 250 },
@@ -20,7 +18,6 @@ const Scanner = () => {
     async function onScanSuccess(decodedText) {
       const currentTime = Date.now();
       
-      // Anti-flood lock: Huwag tanggapin ang iisang ID kung na-scan na ito sa nakalipas na 5 segundo
       if (decodedText === lastScannedId.current && (currentTime - lastScannedTime.current < 5000)) {
         return; 
       }
@@ -32,7 +29,7 @@ const Scanner = () => {
       setStatusMessage(`Checking ID: ${decodedText}...`);
 
       try {
-        // 1. I-verify sa 'employees' table kung rehistrado ang na-scan na employee_id
+        // 1. I-verify kung rehistrado ang employee
         const { data: employee, error: empError } = await supabase
           .from('employees')
           .select('full_name')
@@ -45,45 +42,58 @@ const Scanner = () => {
           return;
         }
 
-        // 2. I-format ang local date (YYYY-MM-DD) at local time (HH:MM:SS) para sa database
-        const localDate = new Date().toLocaleDateString('en-CA'); // Halimbawa: "2026-06-27"
-        const localTime = new Date().toTimeString().split(' ')[0]; // Halimbawa: "21:45:00"
+        const localDate = new Date().toLocaleDateString('en-CA');
+        const localTime = new Date().toTimeString().split(' ')[0];
 
-        // 3. I-insert ang data sa 'attendance' table gamit ang iyong mga columns
-        const { error: attendanceError } = await supabase
+        // 2. I-check kung may existing record na para sa araw na ito
+        const { data: existingRecord, error: fetchError } = await supabase
           .from('attendance')
-          .insert([
-            { 
-              employee_id: decodedText, 
-              date: localDate,
-              time_in: localTime,
-              day_type: 'Regular',  
-              shift: 'Day Shift'    
-            }
-          ]);
+          .select('id, time_in, time_out')
+          .eq('employee_id', decodedText)
+          .eq('date', localDate)
+          .maybeSingle();
 
-        if (attendanceError) {
-          setStatusMessage(`❌ Failed to record: ${attendanceError.message}`);
-          console.error("Supabase Insertion Error:", attendanceError);
+        if (fetchError) throw fetchError;
+
+        if (existingRecord) {
+          // Kung meron na, i-update ang time_out
+          const { error: updateError } = await supabase
+            .from('attendance')
+            .update({ time_out: localTime })
+            .eq('id', existingRecord.id);
+
+          if (updateError) throw updateError;
+          setStatusMessage(`✅ Time-Out Recorded: ${employee.full_name}`);
         } else {
-          setStatusMessage(`✅ Attendance Recorded: ${employee.full_name}`);
+          // Kung wala pa, mag-insert ng time_in
+          const { error: insertError } = await supabase
+            .from('attendance')
+            .insert([
+              { 
+                employee_id: decodedText, 
+                date: localDate,
+                time_in: localTime,
+                day_type: 'Regular',  
+                shift: 'Day Shift'    
+              }
+            ]);
+
+          if (insertError) throw insertError;
+          setStatusMessage(`✅ Time-In Recorded: ${employee.full_name}`);
         }
 
       } catch (err) {
-        setStatusMessage("❌ System or connection error occurred.");
-        console.error(err);
+        setStatusMessage("❌ Error: " + err.message);
+        console.error("Scanner Error:", err);
       } finally {
         setIsProcessing(false);
       }
     }
 
-    scanner.render(onScanSuccess, (error) => {
-      // Normal camera noise during capture stream, safe i-ignore
-    });
+    scanner.render(onScanSuccess, (error) => {});
 
-    // Cleanup function para patayin ang camera instance kapag umalis sa page
     return () => {
-      scanner.clear().catch(err => console.error("Failed to clear scanner camera:", err));
+      scanner.clear().catch(err => console.error("Failed to clear scanner:", err));
     };
   }, []);
 
@@ -101,7 +111,6 @@ const Scanner = () => {
       <h2 style={{ marginBottom: '10px', color: '#ff4d4d' }}>PHO Attendance Kiosk</h2>
       <p style={{ color: '#aaa', marginBottom: '30px' }}>Place your employee QR code in front of the camera</p>
       
-      {/* Dynamic Status Box Feedback Container */}
       <div style={{
         padding: '15px 25px',
         marginBottom: '25px',
@@ -119,7 +128,6 @@ const Scanner = () => {
         {statusMessage}
       </div>
 
-      {/* Target element kung saan i-re-render ng library ang Video Canvas Stream */}
       <div id="reader" style={{ 
         width: '100%', 
         maxWidth: '450px', 
