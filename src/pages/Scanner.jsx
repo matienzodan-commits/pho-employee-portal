@@ -83,27 +83,31 @@ const Scanner = () => {
 
           if (upErr) throw upErr;
           setStatusMessage(`✅ Time-Out recorded for ${employee.full_name}.`);
-        } else {
-          // TIME IN: Calculate late only if scanning between 8am and 11am
-          let late = 0;
-          if (currentMinutes > START_OF_DAY && currentMinutes <= LATE_CUTOFF) {
-            late = currentMinutes - START_OF_DAY;
-          }
-          
-          const { error: inErr } = await supabase
-            .from('attendance')
-            .insert([{ 
-              employee_id: decodedText, 
-              date: localDate, 
-              time_in: timeStr, 
-              late_minutes: late,
-              day_type: 'Regular', 
-              shift: 'Day Shift' 
-            }]);
+      } else {
+  // TIME IN: Only allow if between 07:00 (420) and 17:00 (1020)
+  if (currentMinutes < 420 || currentMinutes > 1020) {
+    setStatusMessage(`❌ Kiosk is closed. Please scan between 7:00 AM and 5:00 PM.`);
+    setIsProcessing(false);
+    return;
+  }
 
-          if (inErr) throw inErr;
-          setStatusMessage(`✅ Time-In recorded for ${employee.full_name}.`);
-        }
+  const targetIn = 480; // 8:00 AM
+  const late = Math.max(0, currentMinutes - targetIn);
+  
+  const { error: inErr } = await supabase
+    .from('attendance')
+    .insert([{ 
+      employee_id: decodedText, 
+      date: localDate, 
+      time_in: timeStr, 
+      late_minutes: late,
+      day_type: 'Regular', 
+      shift: 'Day Shift' 
+    }]);
+
+  if (inErr) throw inErr;
+  setStatusMessage(`✅ Time-In recorded for ${employee.full_name}.`);
+}
 
       } catch (err) {
         setStatusMessage("❌ Error: " + err.message);
