@@ -24,31 +24,26 @@ export default function AdminDashboard() {
   const [hoveredRow, setHoveredRow] = useState(null);
   const [hoveredBtn, setHoveredBtn] = useState(null);
 
-  // Monthly Report States
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showReport, setShowReport] = useState(false);
 
-  // Leave Filter States
   const [leaveStatusFilter, setLeaveStatusFilter] = useState("All");
   const [leaveSearchTerm, setLeaveSearchTerm] = useState("");
   const [leaveTypeFilter, setLeaveTypeFilter] = useState("All");
   const [leaveDateFrom, setLeaveDateFrom] = useState("");
   const [leaveDateTo, setLeaveDateTo] = useState("");
 
-  // NEW: Employee Modal States
   const [showEmpModal, setShowEmpModal] = useState(false);
-  const [empModalMode, setEmpModalMode] = useState("add"); // "add" or "edit"
+  const [empModalMode, setEmpModalMode] = useState("add");
   const [selectedEmp, setSelectedEmp] = useState(null);
-const [empForm, setEmpForm] = useState({
-     full_name: "", last_name: "", first_name: "",
-     middle_initial: "", username: "", email: "", role: "employee",
-     department: "", position: "", monthly_salary: "", leave_credits: 15,
-   });
+  const [empForm, setEmpForm] = useState({
+    full_name: "", last_name: "", first_name: "",
+    middle_initial: "", username: "", email: "", role: "employee",
+    department: "", position: "", monthly_salary: "", leave_credits: 15,
+  });
 
-  // NEW: QR Modal State
   const [qrEmployee, setQrEmployee] = useState(null);
   const qrPrintRef = useRef(null);
-
   const handleQrPrint = useReactToPrint({
     contentRef: qrPrintRef,
     documentTitle: `QR_${qrEmployee?.employee_id || "employee"}`,
@@ -56,12 +51,10 @@ const [empForm, setEmpForm] = useState({
 
   const printRef = useRef(null);
   const reportPrintRef = useRef(null);
-
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     documentTitle: `Leave_Application_${selectedLeave?.last_name || "Form"}`,
   });
-
   const handleReportPrint = useReactToPrint({
     contentRef: reportPrintRef,
     documentTitle: `Monthly_Attendance_Report_${selectedMonth}`,
@@ -71,9 +64,40 @@ const [empForm, setEmpForm] = useState({
 
   const fetchData = async () => {
     setLoading(true);
-    const { data: leaveData } = await supabase.from("leave_applications").select("*").order("created_at", { ascending: false });
-    const { data: empData } = await supabase.from("employees").select("*").order("created_at", { ascending: false });
-    const { data: attData } = await supabase.from("attendance").select("*, employees (full_name)").order("date", { ascending: false });
+    const { data: leaveData } = await supabase
+      .from("leave_applications")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    const { data: empData } = await supabase
+      .from("employees")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    // UPDATED: explicitly include late_minutes and undertime_minutes
+    const { data: attData } = await supabase
+      .from("attendance")
+      .select(`
+        id,
+        date,
+        time_in,
+        time_out,
+        basic_hours,
+        excess_hours,
+        overtime_hours,
+        late_hours,
+        late_minutes,
+        undertime_hours,
+        undertime_minutes,
+        leave_type,
+        leave_hours,
+        day_type,
+        shift,
+        employee_id,
+        employees (full_name)
+      `)
+      .order("date", { ascending: false });
+
     setLeaves(leaveData || []);
     setEmployees(empData || []);
     setAttendanceLogs(attData || []);
@@ -86,10 +110,12 @@ const [empForm, setEmpForm] = useState({
     filtered.forEach(log => {
       const name = log.employees?.full_name || "Unknown";
       if (!summary[name]) {
-        summary[name] = { totalLate: 0, totalUndertime: 0, totalOvertime: 0, totalLeave: 0, days: 0 };
+        summary[name] = { totalLate: 0, totalLateMinutes: 0, totalUndertime: 0, totalUndertimeMinutes: 0, totalOvertime: 0, totalLeave: 0, days: 0 };
       }
       summary[name].totalLate += parseFloat(log.late_hours || 0);
+      summary[name].totalLateMinutes += parseInt(log.late_minutes || 0);
       summary[name].totalUndertime += parseFloat(log.undertime_hours || 0);
+      summary[name].totalUndertimeMinutes += parseInt(log.undertime_minutes || 0);
       summary[name].totalOvertime += parseFloat(log.overtime_hours || 0);
       summary[name].totalLeave += parseFloat(log.leave_hours || 0);
       summary[name].days += 1;
@@ -103,14 +129,12 @@ const [empForm, setEmpForm] = useState({
     else { alert("Credits updated!"); setEditingEmp(null); fetchData(); }
   };
 
-  // NEW: Add Employee
   const handleAddEmployee = async () => {
     if (!empForm.username || !empForm.email) {
       alert("Please fill in Username and Email.");
       return;
     }
     try {
-      // Insert employee record
       const { error } = await supabase.from("employees").insert([{
         full_name: `${empForm.first_name} ${empForm.last_name}`.trim(),
         last_name: empForm.last_name,
@@ -124,7 +148,6 @@ const [empForm, setEmpForm] = useState({
         monthly_salary: parseFloat(empForm.monthly_salary) || 0,
         leave_credits: parseFloat(empForm.leave_credits) || 15,
       }]);
-
       if (error) throw error;
       alert(`✅ Employee added! To allow login, go to Supabase Auth > Add User with email: ${empForm.email}`);
       setShowEmpModal(false);
@@ -135,7 +158,6 @@ const [empForm, setEmpForm] = useState({
     }
   };
 
-  // NEW: Edit Employee
   const handleEditEmployee = async () => {
     try {
       const { error } = await supabase.from("employees").update({
@@ -151,7 +173,6 @@ const [empForm, setEmpForm] = useState({
         monthly_salary: parseFloat(empForm.monthly_salary) || 0,
         leave_credits: parseFloat(empForm.leave_credits) || 15,
       }).eq("id", selectedEmp.id);
-
       if (error) throw error;
       alert("✅ Employee updated successfully!");
       setShowEmpModal(false);
@@ -162,13 +183,11 @@ const [empForm, setEmpForm] = useState({
     }
   };
 
-  // NEW: Delete Employee
   const handleDeleteEmployee = async (emp) => {
     const confirmed = window.confirm(
       `⚠️ Are you sure you want to delete ${emp.full_name}?\n\nThis will permanently remove their record. This cannot be undone.`
     );
     if (!confirmed) return;
-
     const { error } = await supabase.from("employees").delete().eq("id", emp.id);
     if (error) alert("Error: " + error.message);
     else { alert("✅ Employee deleted."); fetchData(); }
@@ -183,11 +202,7 @@ const [empForm, setEmpForm] = useState({
     setSelectedEmp(null);
   };
 
-  const openAddModal = () => {
-    resetEmpForm();
-    setEmpModalMode("add");
-    setShowEmpModal(true);
-  };
+  const openAddModal = () => { resetEmpForm(); setEmpModalMode("add"); setShowEmpModal(true); };
 
   const openEditModal = (emp) => {
     setEmpForm({
@@ -314,12 +329,8 @@ const [empForm, setEmpForm] = useState({
             <div style={styles.headerSub}>Provincial Health Office — Admin</div>
           </div>
         </div>
-        <button
-          onClick={handleLogout}
-          onMouseEnter={() => setHoveredBtn("logout")}
-          onMouseLeave={() => setHoveredBtn(null)}
-          style={{ ...styles.logoutBtn, ...(hoveredBtn === "logout" ? { background: "rgba(255,255,255,0.35)", transform: "scale(1.03)" } : {}) }}
-        >
+        <button onClick={handleLogout} onMouseEnter={() => setHoveredBtn("logout")} onMouseLeave={() => setHoveredBtn(null)}
+          style={{ ...styles.logoutBtn, ...(hoveredBtn === "logout" ? { background: "rgba(255,255,255,0.35)", transform: "scale(1.03)" } : {}) }}>
           Logout
         </button>
       </div>
@@ -331,17 +342,9 @@ const [empForm, setEmpForm] = useState({
           { id: "employees", label: "Employees" },
           { id: "attendance", label: "Attendance Logs" }
         ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            onMouseEnter={() => setHoveredBtn(`tab-${tab.id}`)}
-            onMouseLeave={() => setHoveredBtn(null)}
-            style={{
-              ...styles.navBtn,
-              ...(activeTab === tab.id ? styles.navBtnActive : {}),
-              ...(hoveredBtn === `tab-${tab.id}` && activeTab !== tab.id ? { color: "white", background: "rgba(255,255,255,0.05)" } : {})
-            }}
-          >
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            onMouseEnter={() => setHoveredBtn(`tab-${tab.id}`)} onMouseLeave={() => setHoveredBtn(null)}
+            style={{ ...styles.navBtn, ...(activeTab === tab.id ? styles.navBtnActive : {}), ...(hoveredBtn === `tab-${tab.id}` && activeTab !== tab.id ? { color: "white", background: "rgba(255,255,255,0.05)" } : {}) }}>
             {tab.label}
           </button>
         ))}
@@ -358,23 +361,16 @@ const [empForm, setEmpForm] = useState({
             { id: "rejected", icon: "❌", label: "Rejected", val: rejectedCount, color: "#c0392b" },
             { id: "total", icon: "👥", label: "Total Employees", val: employees.length, color: "#8B0000" }
           ].map((card) => (
-            <div
-              key={card.id}
-              onMouseEnter={() => setHoveredCard(card.id)}
-              onMouseLeave={() => setHoveredCard(null)}
-              style={{ ...styles.card, ...(hoveredCard === card.id ? styles.cardHover : {}) }}
-            >
+            <div key={card.id} onMouseEnter={() => setHoveredCard(card.id)} onMouseLeave={() => setHoveredCard(null)}
+              style={{ ...styles.card, ...(hoveredCard === card.id ? styles.cardHover : {}) }}>
               <div style={styles.cardIcon}>{card.icon}</div>
               <div style={styles.cardLabel}>{card.label}</div>
               <div style={{ ...styles.cardValue, color: card.color }}>{card.val}</div>
             </div>
           ))}
           {urgentCount > 0 && (
-            <div
-              onMouseEnter={() => setHoveredCard("urgent")}
-              onMouseLeave={() => setHoveredCard(null)}
-              style={{ ...styles.card, border: "2px solid #c0392b", background: "#fff5f5", ...(hoveredCard === "urgent" ? styles.cardHover : {}) }}
-            >
+            <div onMouseEnter={() => setHoveredCard("urgent")} onMouseLeave={() => setHoveredCard(null)}
+              style={{ ...styles.card, border: "2px solid #c0392b", background: "#fff5f5", ...(hoveredCard === "urgent" ? styles.cardHover : {}) }}>
               <div style={styles.cardIcon}>🚨</div>
               <div style={{ ...styles.cardLabel, color: "#c0392b" }}>Urgent</div>
               <div style={{ ...styles.cardValue, color: "#c0392b" }}>{urgentCount}</div>
@@ -391,17 +387,8 @@ const [empForm, setEmpForm] = useState({
             </div>
             <div style={styles.statusTabBar}>
               {["All", "Pending", "Approved", "Rejected"].map(status => (
-                <button
-                  key={status}
-                  onClick={() => setLeaveStatusFilter(status)}
-                  style={{
-                    ...styles.statusTab,
-                    ...(leaveStatusFilter === status ? {
-                      background: status === "Pending" ? "#e65100" : status === "Approved" ? "#2e7d32" : status === "Rejected" ? "#c0392b" : "#8B0000",
-                      color: "white", borderColor: "transparent",
-                    } : {})
-                  }}
-                >
+                <button key={status} onClick={() => setLeaveStatusFilter(status)}
+                  style={{ ...styles.statusTab, ...(leaveStatusFilter === status ? { background: status === "Pending" ? "#e65100" : status === "Approved" ? "#2e7d32" : status === "Rejected" ? "#c0392b" : "#8B0000", color: "white", borderColor: "transparent" } : {}) }}>
                   {status}
                   <span style={styles.statusTabCount}>
                     {status === "All" ? leaves.length : status === "Pending" ? pendingCount : status === "Approved" ? approvedCount : rejectedCount}
@@ -482,13 +469,8 @@ const [empForm, setEmpForm] = useState({
           <div style={styles.tableContainer}>
             <div style={styles.tableHeader}>
               <h3 style={styles.tableTitle}>Employee List</h3>
-              {/* NEW: Add Employee Button */}
-              <button
-                onClick={openAddModal}
-                onMouseEnter={() => setHoveredBtn("add-emp")}
-                onMouseLeave={() => setHoveredBtn(null)}
-                style={{ ...styles.addEmpBtn, ...(hoveredBtn === "add-emp" ? { background: "#6b0000" } : {}) }}
-              >
+              <button onClick={openAddModal} onMouseEnter={() => setHoveredBtn("add-emp")} onMouseLeave={() => setHoveredBtn(null)}
+                style={{ ...styles.addEmpBtn, ...(hoveredBtn === "add-emp" ? { background: "#6b0000" } : {}) }}>
                 + Add Employee
               </button>
             </div>
@@ -517,16 +499,12 @@ const [empForm, setEmpForm] = useState({
                         <td style={styles.td}>{emp.leave_credits}</td>
                         <td style={styles.td}>
                           <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
-                            {/* Edit */}
                             <button onClick={() => openEditModal(emp)} onMouseEnter={() => setHoveredBtn(`edit-${i}`)} onMouseLeave={() => setHoveredBtn(null)}
                               style={{ ...styles.viewBtn, ...(hoveredBtn === `edit-${i}` ? styles.viewBtnHover : {}) }}>✏️ Edit</button>
-                            {/* Edit Credits */}
                             <button onClick={() => { setEditingEmp(emp); setNewCreditValue(emp.leave_credits); }} onMouseEnter={() => setHoveredBtn(`cred-${i}`)} onMouseLeave={() => setHoveredBtn(null)}
                               style={{ ...styles.reviewBtn, ...(hoveredBtn === `cred-${i}` ? styles.reviewBtnHover : {}) }}>📋 Credits</button>
-                            {/* QR Code */}
                             <button onClick={() => setQrEmployee(emp)} onMouseEnter={() => setHoveredBtn(`qr-${i}`)} onMouseLeave={() => setHoveredBtn(null)}
                               style={{ ...styles.qrBtn, ...(hoveredBtn === `qr-${i}` ? { background: "#1565c0" } : {}) }}>📱 QR</button>
-                            {/* Delete */}
                             <button onClick={() => handleDeleteEmployee(emp)} onMouseEnter={() => setHoveredBtn(`del-${i}`)} onMouseLeave={() => setHoveredBtn(null)}
                               style={{ ...styles.deleteBtn, ...(hoveredBtn === `del-${i}` ? { background: "#7b1a1a" } : {}) }}>🗑️</button>
                           </div>
@@ -540,7 +518,7 @@ const [empForm, setEmpForm] = useState({
           </div>
         )}
 
-        {/* ATTENDANCE LOGS TAB */}
+        {/* ATTENDANCE LOGS TAB - UPDATED */}
         {activeTab === "attendance" && (
           <div style={styles.tableContainer}>
             <div style={styles.attendanceFilterHeader}>
@@ -559,7 +537,7 @@ const [empForm, setEmpForm] = useState({
               <table style={styles.table}>
                 <thead>
                   <tr style={styles.thead}>
-                    {["Employee Name", "Date", "Time In", "Time Out", "Late (Hrs)", "Undertime", "Shift/Type"].map(h => (
+                    {["Employee Name", "Date", "Time In", "Time Out", "Late", "Undertime", "Shift/Type"].map(h => (
                       <th key={h} style={styles.th}>{h}</th>
                     ))}
                   </tr>
@@ -570,18 +548,46 @@ const [empForm, setEmpForm] = useState({
                   ) : (
                     filteredAttendance.map((log, i) => {
                       const rowId = `att-${i}`;
-                      const isLate = log.late_hours > 0;
-                      const isUndertime = log.undertime_hours > 0;
+                      // UPDATED: use late_minutes and undertime_minutes
+                      const lateMinutes = parseInt(log.late_minutes || 0);
+                      const undertimeMinutes = parseInt(log.undertime_minutes || 0);
+                      const lateHours = parseFloat(log.late_hours || 0);
+                      const undertimeHours = parseFloat(log.undertime_hours || 0);
+                      const isLate = lateMinutes > 0 || lateHours > 0;
+                      const isUndertime = undertimeMinutes > 0 || undertimeHours > 0;
                       const isOnLeave = log.time_in === "ON LEAVE";
                       return (
                         <tr key={i} onMouseEnter={() => setHoveredRow(rowId)} onMouseLeave={() => setHoveredRow(null)}
                           style={{ ...(i % 2 === 0 ? styles.trEven : styles.trOdd), ...(hoveredRow === rowId ? styles.trHover : {}) }}>
-                          <td style={{ ...styles.td, fontWeight: "600", color: "#1e293b" }}>{log.employees?.full_name || "Unknown Employee"}</td>
+                          <td style={{ ...styles.td, fontWeight: "600", color: "#1e293b" }}>
+                            {log.employees?.full_name || "Unknown Employee"}
+                          </td>
                           <td style={styles.td}>{log.date}</td>
-                          <td style={{ ...styles.td, fontWeight: "bold", color: isOnLeave ? "#1565c0" : isLate ? "#c0392b" : "#2e7d32" }}>{log.time_in || "—"}</td>
+                          <td style={{ ...styles.td, fontWeight: "bold", color: isOnLeave ? "#1565c0" : isLate ? "#c0392b" : "#2e7d32" }}>
+                            {log.time_in || "—"}
+                          </td>
                           <td style={{ ...styles.td, fontWeight: "600" }}>{log.time_out || "—"}</td>
-                          <td style={{ ...styles.td, color: isLate ? "#c0392b" : "#334155", fontWeight: isLate ? "bold" : "normal" }}>{isLate ? `${log.late_hours} hr/s` : "—"}</td>
-                          <td style={{ ...styles.td, color: isUndertime ? "#e65100" : "#334155", fontWeight: isUndertime ? "bold" : "normal" }}>{isUndertime ? `${log.undertime_hours} hr/s` : "—"}</td>
+
+                          {/* UPDATED: Late column showing minutes */}
+                          <td style={{ ...styles.td, color: isLate ? "#c0392b" : "#334155", fontWeight: isLate ? "bold" : "normal" }}>
+                            {isLate ? (
+                              <div>
+                                <div style={{ fontSize: 12 }}>{lateMinutes > 0 ? `${lateMinutes} mins` : "—"}</div>
+                                {lateHours > 0 && <div style={{ fontSize: 11, color: "#94a3b8" }}>({lateHours} hrs)</div>}
+                              </div>
+                            ) : "—"}
+                          </td>
+
+                          {/* UPDATED: Undertime column showing minutes */}
+                          <td style={{ ...styles.td, color: isUndertime ? "#e65100" : "#334155", fontWeight: isUndertime ? "bold" : "normal" }}>
+                            {isUndertime ? (
+                              <div>
+                                <div style={{ fontSize: 12 }}>{undertimeMinutes > 0 ? `${undertimeMinutes} mins` : "—"}</div>
+                                {undertimeHours > 0 && <div style={{ fontSize: 11, color: "#94a3b8" }}>({undertimeHours} hrs)</div>}
+                              </div>
+                            ) : "—"}
+                          </td>
+
                           <td style={{ ...styles.td, fontWeight: isOnLeave ? "bold" : "normal", color: isOnLeave ? "#1565c0" : "#334155" }}>
                             {log.leave_type ? `🌴 ${log.leave_type}` : log.day_type || "Regular"}
                           </td>
@@ -651,7 +657,7 @@ const [empForm, setEmpForm] = useState({
         <div style={styles.modalOverlay}>
           <div style={{ ...styles.modal, width: 620, maxWidth: "95%", maxHeight: "90vh", overflowY: "auto" }}>
             <h3 style={styles.modalTitle}>{empModalMode === "add" ? "➕ Add New Employee" : "✏️ Edit Employee"}</h3>
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {[
                 { label: "Email", key: "email", disabled: empModalMode === "edit" },
                 { label: "Last Name", key: "last_name" },
@@ -675,13 +681,10 @@ const [empForm, setEmpForm] = useState({
                       <option value="admin">Admin</option>
                     </select>
                   ) : (
-                    <input
-                      type="text"
-                      value={empForm[field.key]}
+                    <input type="text" value={empForm[field.key]}
                       onChange={(e) => setEmpForm(prev => ({ ...prev, [field.key]: e.target.value }))}
                       disabled={field.disabled}
-                      style={{ ...styles.textarea, resize: "none", height: 38, opacity: field.disabled ? 0.6 : 1 }}
-                    />
+                      style={{ ...styles.textarea, resize: "none", height: 38, opacity: field.disabled ? 0.6 : 1 }} />
                   )}
                 </div>
               ))}
@@ -711,12 +714,7 @@ const [empForm, setEmpForm] = useState({
               <div style={{ fontWeight: "bold", fontSize: 13, color: "#8B0000", marginBottom: 4 }}>PROVINCIAL HEALTH OFFICE</div>
               <div style={{ fontSize: 13, color: "#333", marginBottom: 16 }}>{qrEmployee.full_name}</div>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                <QRCodeSVG
-                  value={qrEmployee.employee_id}
-                  size={200}
-                  level="H"
-                  includeMargin={true}
-                />
+                <QRCodeSVG value={qrEmployee.employee_id} size={200} level="H" includeMargin={true} />
               </div>
               <div style={{ fontWeight: "bold", fontSize: 16, color: "#333", letterSpacing: 2 }}>{qrEmployee.employee_id}</div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{qrEmployee.position} — {qrEmployee.department}</div>
@@ -729,10 +727,10 @@ const [empForm, setEmpForm] = useState({
         </div>
       )}
 
-      {/* MONTHLY REPORT MODAL */}
+      {/* MONTHLY REPORT MODAL - UPDATED with minutes */}
       {showReport && (
         <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modal, width: 700, maxWidth: "95%" }}>
+          <div style={{ ...styles.modal, width: 750, maxWidth: "95%" }}>
             <div ref={reportPrintRef} style={{ padding: "10px" }}>
               <div style={{ textAlign: "center", marginBottom: 20, borderBottom: "2px solid #8B0000", paddingBottom: 12 }}>
                 <img src="/pho-seal.png" alt="PHO Seal" style={{ width: 60, height: 60, objectFit: "contain" }} />
@@ -748,8 +746,8 @@ const [empForm, setEmpForm] = useState({
                   <tr style={{ background: "#8B0000" }}>
                     <th style={styles.reportTh}>Employee Name</th>
                     <th style={styles.reportTh}>Days Present</th>
-                    <th style={styles.reportTh}>Total Late (hrs)</th>
-                    <th style={styles.reportTh}>Total Undertime (hrs)</th>
+                    <th style={styles.reportTh}>Total Late (mins)</th>
+                    <th style={styles.reportTh}>Total Undertime (mins)</th>
                     <th style={styles.reportTh}>Total Overtime (hrs)</th>
                     <th style={styles.reportTh}>Leave Hours</th>
                   </tr>
@@ -762,10 +760,19 @@ const [empForm, setEmpForm] = useState({
                       <tr key={i} style={{ background: i % 2 === 0 ? "white" : "#f8fafc" }}>
                         <td style={styles.reportTd}>{item.name}</td>
                         <td style={styles.reportTd}>{item.days}</td>
-                        <td style={{ ...styles.reportTd, color: item.totalLate > 0 ? "#c0392b" : "#334155", fontWeight: item.totalLate > 0 ? "bold" : "normal" }}>{item.totalLate.toFixed(2)}</td>
-                        <td style={{ ...styles.reportTd, color: item.totalUndertime > 0 ? "#e65100" : "#334155", fontWeight: item.totalUndertime > 0 ? "bold" : "normal" }}>{item.totalUndertime.toFixed(2)}</td>
-                        <td style={{ ...styles.reportTd, color: item.totalOvertime > 0 ? "#2e7d32" : "#334155" }}>{item.totalOvertime.toFixed(2)}</td>
-                        <td style={styles.reportTd}>{item.totalLeave.toFixed(2)}</td>
+                        {/* UPDATED: Show minutes in report */}
+                        <td style={{ ...styles.reportTd, color: item.totalLateMinutes > 0 ? "#c0392b" : "#334155", fontWeight: item.totalLateMinutes > 0 ? "bold" : "normal" }}>
+                          {item.totalLateMinutes > 0 ? `${item.totalLateMinutes} mins` : "—"}
+                        </td>
+                        <td style={{ ...styles.reportTd, color: item.totalUndertimeMinutes > 0 ? "#e65100" : "#334155", fontWeight: item.totalUndertimeMinutes > 0 ? "bold" : "normal" }}>
+                          {item.totalUndertimeMinutes > 0 ? `${item.totalUndertimeMinutes} mins` : "—"}
+                        </td>
+                        <td style={{ ...styles.reportTd, color: item.totalOvertime > 0 ? "#2e7d32" : "#334155" }}>
+                          {item.totalOvertime > 0 ? `${item.totalOvertime.toFixed(2)} hrs` : "—"}
+                        </td>
+                        <td style={styles.reportTd}>
+                          {item.totalLeave > 0 ? `${item.totalLeave.toFixed(2)} hrs` : "—"}
+                        </td>
                       </tr>
                     ))
                   )}
