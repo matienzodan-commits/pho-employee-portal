@@ -5,140 +5,59 @@ import { supabase } from "../supabase/supabaseClient";
 const Scanner = () => {
   const [statusMessage, setStatusMessage] = useState("Ready to scan...");
   const [isProcessing, setIsProcessing] = useState(false);
-  
   const lastScannedId = useRef(null);
   const lastScannedTime = useRef(0);
 
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner("reader", {
-      fps: 10,
-      qrbox: { width: 250, height: 250 },
-    }, false);
+    const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
 
     async function onScanSuccess(decodedText) {
-      const currentTime = Date.now();
+      const now = new Date();
+      const currentTime = now.getTime();
       
-      if (decodedText === lastScannedId.current && (currentTime - lastScannedTime.current < 5000)) {
-        return; 
-      }
+      if (decodedText === lastScannedId.current && (currentTime - lastScannedTime.current < 5000)) return;
 
       lastScannedId.current = decodedText;
       lastScannedTime.current = currentTime;
 
       setIsProcessing(true);
-      setStatusMessage(`Checking ID: ${decodedText}...`);
-
       try {
-        // 1. I-verify kung rehistrado ang employee
-        const { data: employee, error: empError } = await supabase
-          .from('employees')
-          .select('full_name')
-          .eq('employee_id', decodedText)
-          .single();
+        const { data: employee } = await supabase.from('employees').select('full_name').eq('employee_id', decodedText).single();
+        if (!employee) { setStatusMessage("❌ ID not found"); setIsProcessing(false); return; }
 
-        if (empError || !employee) {
-          setStatusMessage(`❌ Error: Invalid QR Code (ID ${decodedText} not found)`);
-          setIsProcessing(false);
-          return;
-        }
+        const localDate = now.toLocaleDateString('en-CA');
+        const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const currentMinutes = hours * 60 + minutes;
 
-        const localDate = new Date().toLocaleDateString('en-CA');
-        const localTime = new Date().toTimeString().split(' ')[0];
-
-        // 2. I-check kung may existing record na para sa araw na ito
-        const { data: existingRecord, error: fetchError } = await supabase
-          .from('attendance')
-          .select('id, time_in, time_out')
-          .eq('employee_id', decodedText)
-          .eq('date', localDate)
-          .maybeSingle();
-
-        if (fetchError) throw fetchError;
+        const { data: existingRecord } = await supabase.from('attendance')
+          .select('id, time_in').eq('employee_id', decodedText).eq('date', localDate).maybeSingle();
 
         if (existingRecord) {
-          // Kung meron na, i-update ang time_out
-          const { error: updateError } = await supabase
-            .from('attendance')
-            .update({ time_out: localTime })
-            .eq('id', existingRecord.id);
-
-          if (updateError) throw updateError;
-          setStatusMessage(`✅ Time-Out Recorded: ${employee.full_name}`);
+          // TIME OUT LOGIC (Target 17:00 = 1020 minutes)
+          let undertime = Math.max(0, 1020 - currentMinutes);
+          await supabase.from('attendance').update({ time_out: timeStr, undertime_minutes: undertime }).eq('id', existingRecord.id);
+          setStatusMessage(`✅ Time-Out recorded for ${employee.full_name} (${undertime > 0 ? undertime + ' min undertime' : 'No undertime'})`);
         } else {
-          // Kung wala pa, mag-insert ng time_in
-          const { error: insertError } = await supabase
-            .from('attendance')
-            .insert([
-              { 
-                employee_id: decodedText, 
-                date: localDate,
-                time_in: localTime,
-                day_type: 'Regular',  
-                shift: 'Day Shift'    
-              }
-            ]);
-
-          if (insertError) throw insertError;
-          setStatusMessage(`✅ Time-In Recorded: ${employee.full_name}`);
+          // TIME IN LOGIC (Target 08:00 = 480 minutes)
+          let late = Math.max(0, currentMinutes - 480);
+          await supabase.from('attendance').insert([{ employee_id: decodedText, date: localDate, time_in: timeStr, late_minutes: late, day_type: 'Regular', shift: 'Day Shift' }]);
+          setStatusMessage(`✅ Time-In recorded for ${employee.full_name} (${late > 0 ? late + ' min late' : 'On time'})`);
         }
-
-      } catch (err) {
-        setStatusMessage("❌ Error: " + err.message);
-        console.error("Scanner Error:", err);
-      } finally {
-        setIsProcessing(false);
-      }
+      } catch (err) { setStatusMessage("❌ Error: " + err.message); }
+      finally { setIsProcessing(false); }
     }
 
-    scanner.render(onScanSuccess, (error) => {});
-
-    return () => {
-      scanner.clear().catch(err => console.error("Failed to clear scanner:", err));
-    };
+    scanner.render(onScanSuccess, () => {});
+    return () => scanner.clear();
   }, []);
 
   return (
-    <div style={{ 
-      padding: '40px 20px', 
-      display: 'flex', 
-      flexDirection: 'column', 
-      alignItems: 'center', 
-      fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-      backgroundColor: '#1a1a1a',
-      minHeight: '100vh',
-      color: '#ffffff'
-    }}>
-      <h2 style={{ marginBottom: '10px', color: '#ff4d4d' }}>PHO Attendance Kiosk</h2>
-      <p style={{ color: '#aaa', marginBottom: '30px' }}>Place your employee QR code in front of the camera</p>
-      
-      <div style={{
-        padding: '15px 25px',
-        marginBottom: '25px',
-        borderRadius: '8px',
-        width: '100%',
-        maxWidth: '450px',
-        textAlign: 'center',
-        fontWeight: '600',
-        fontSize: '16px',
-        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-        backgroundColor: isProcessing ? '#333333' : statusMessage.startsWith('✅') ? '#d4edda' : statusMessage.startsWith('❌') ? '#f8d7da' : '#2a2a2a',
-        color: isProcessing ? '#ffffff' : statusMessage.startsWith('✅') ? '#155724' : statusMessage.startsWith('❌') ? '#721c24' : '#ffffff',
-        border: statusMessage.startsWith('✅') ? '1px solid #c3e6cb' : statusMessage.startsWith('❌') ? '1px solid #f5c6cb' : '1px solid #444'
-      }}>
-        {statusMessage}
-      </div>
-
-      <div id="reader" style={{ 
-        width: '100%', 
-        maxWidth: '450px', 
-        borderRadius: '12px', 
-        overflow: 'hidden',
-        border: 'none',
-        backgroundColor: '#2a2a2a',
-        boxShadow: '0 10px 25px rgba(0,0,0,0.3)'
-      }}></div>
+    <div style={{ padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#1a1a1a', minHeight: '100vh', color: '#ffffff' }}>
+      <h2 style={{ color: '#ff4d4d' }}>PHO Attendance Kiosk</h2>
+      <div style={{ padding: '20px', margin: '20px', borderRadius: '8px', backgroundColor: '#333', textAlign: 'center' }}>{statusMessage}</div>
+      <div id="reader" style={{ width: '100%', maxWidth: '450px' }}></div>
     </div>
   );
 };
-
 export default Scanner;
