@@ -202,7 +202,7 @@ export default function EmployeeDashboard() {
 
       {/* NAV */}
       <div style={styles.nav}>
-        {["attendance", "leaves", "payslip"].map(tab => (
+        {["attendance", "leaves"].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -421,15 +421,6 @@ export default function EmployeeDashboard() {
           </div>
         )}
 
-        {/* PAYSLIP TAB */}
-        {activeTab === "payslip" && (
-          <div style={styles.tableContainer}>
-            <div style={styles.tableHeader}>
-              <h2 style={styles.tableTitle}>Payslips</h2>
-            </div>
-            <div style={styles.noData}>No payslips generated yet.</div>
-          </div>
-        )}
 
       </div>
     </div>
