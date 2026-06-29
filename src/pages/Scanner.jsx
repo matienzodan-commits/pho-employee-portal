@@ -3,7 +3,7 @@ import { Html5QrcodeScanner } from 'html5-qrcode';
 import { supabase } from "../supabase/supabaseClient";
 
 const Scanner = () => {
-  const [statusMessage, setStatusMessage] = useState("Ready to scan...");
+  const [statusMessage, setStatusMessage] = useState("Ready to scan ID...");
   const [isProcessing, setIsProcessing] = useState(false);
   
   const lastScannedId = useRef(null);
@@ -13,35 +13,23 @@ const Scanner = () => {
     const scanner = new Html5QrcodeScanner("reader", {
       fps: 10,
       qrbox: { width: 250, height: 250 },
+      aspectRatio: 1.0,
     }, false);
 
     async function onScanSuccess(decodedText) {
       const currentTime = Date.now();
-      
-      // Anti-flood lock
-      if (decodedText === lastScannedId.current && (currentTime - lastScannedTime.current < 5000)) {
-        return; 
-      }
+      if (decodedText === lastScannedId.current && (currentTime - lastScannedTime.current < 5000)) return; 
 
       lastScannedId.current = decodedText;
       lastScannedTime.current = currentTime;
-
       setIsProcessing(true);
       setStatusMessage(`Processing ID: ${decodedText}...`);
 
       try {
         const now = new Date();
-        const options = { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-        const formatter = new Intl.DateTimeFormat('en-GB', options);
-        const parts = formatter.formatToParts(now);
-        
-        const h = parseInt(parts.find(p => p.type === 'hour').value);
-        const m = parseInt(parts.find(p => p.type === 'minute').value);
-        const s = parseInt(parts.find(p => p.type === 'second').value);
-        const timeStr = `${h}:${m}:${s}`;
+        const timeStr = now.toLocaleTimeString('en-GB', { hour12: false });
         const localDate = now.toLocaleDateString('en-CA');
 
-        // 2. Verify Employee
         const { data: employee, error: empError } = await supabase
           .from('employees')
           .select('full_name')
@@ -54,7 +42,6 @@ const Scanner = () => {
           return;
         }
 
-        // 3. Check for existing record
         const { data: existingRecord } = await supabase
           .from('attendance')
           .select('id')
@@ -64,7 +51,7 @@ const Scanner = () => {
 
         if (existingRecord) {
           await supabase.from('attendance').update({ time_out: timeStr }).eq('id', existingRecord.id);
-          setStatusMessage(`✅ Time-Out recorded for ${employee.full_name}.`);
+          setStatusMessage(`✅ Time-Out: ${employee.full_name}`);
         } else {
           await supabase.from('attendance').insert([{ 
             employee_id: decodedText, 
@@ -73,7 +60,7 @@ const Scanner = () => {
             day_type: 'Regular', 
             shift: 'Shifting' 
           }]);
-          setStatusMessage(`✅ Time-In recorded for ${employee.full_name}.`);
+          setStatusMessage(`✅ Time-In: ${employee.full_name}`);
         }
       } catch (err) {
         setStatusMessage("❌ Error: " + err.message);
@@ -87,42 +74,62 @@ const Scanner = () => {
   }, []);
 
   return (
-    <div style={{ 
-      padding: '40px 20px', 
-      display: 'flex', 
-      flexDirection: 'column', 
-      alignItems: 'center', 
-      backgroundColor: '#8B0000', // PHO Deep Red
-      minHeight: '100vh', 
-      color: '#ffffff', 
-      fontFamily: 'sans-serif' 
-    }}>
-      <h2 style={{ color: '#ffffff', textTransform: 'uppercase', marginBottom: '20px' }}>PHO Attendance Kiosk</h2>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h1 style={styles.title}>PHO ATTENDANCE KIOSK</h1>
+        <p style={styles.subtitle}>Please scan your official ID QR Code</p>
+      </div>
       
-      <div style={{ 
-        padding: '20px', 
-        marginBottom: '20px', 
-        borderRadius: '12px', 
-        backgroundColor: '#ffffff', 
-        color: '#8B0000', 
-        textAlign: 'center', 
-        width: '100%', 
-        maxWidth: '450px',
-        fontWeight: 'bold',
-        boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
-      }}>
+      <div style={styles.statusBox}>
         {statusMessage}
       </div>
       
-      <div id="reader" style={{ 
-        width: '100%', 
-        maxWidth: '450px', 
-        borderRadius: '12px', 
-        overflow: 'hidden', 
-        border: '5px solid #ffffff' 
-      }}></div>
+      <div id="reader" style={styles.scannerBox}></div>
+      
+      <div style={styles.footer}>
+        © 2026 PHO Employee Management System
+      </div>
     </div>
   );
+};
+
+const styles = {
+  container: {
+    padding: '40px 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    background: 'linear-gradient(135deg, #8B0000 0%, #4a0000 100%)',
+    minHeight: '100vh',
+    color: '#ffffff',
+    fontFamily: "'Inter', sans-serif",
+  },
+  header: { marginBottom: '30px', textAlign: 'center' },
+  title: { margin: 0, fontSize: '2rem', letterSpacing: '2px', textShadow: '2px 2px 4px rgba(0,0,0,0.3)' },
+  subtitle: { margin: '5px 0 0', opacity: '0.8', fontWeight: '300' },
+  statusBox: {
+    padding: '20px 30px',
+    marginBottom: '30px',
+    borderRadius: '20px',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    color: '#8B0000',
+    textAlign: 'center',
+    width: '100%',
+    maxWidth: '500px',
+    fontWeight: '700',
+    fontSize: '1.2rem',
+    boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+    backdropFilter: 'blur(10px)',
+  },
+  scannerBox: {
+    width: '100%',
+    maxWidth: '400px',
+    borderRadius: '20px',
+    overflow: 'hidden',
+    border: '8px solid rgba(255,255,255,0.2)',
+    boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+  },
+  footer: { marginTop: 'auto', paddingTop: '40px', opacity: '0.6', fontSize: '0.9rem' }
 };
 
 export default Scanner;
