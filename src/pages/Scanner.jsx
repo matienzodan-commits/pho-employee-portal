@@ -100,6 +100,7 @@ const Scanner = () => {
       employee_id: decodedText, 
       date: localDate, 
       time_in: timeStr, 
+      
       late_minutes: late,
       day_type: 'Regular', 
       shift: 'Day Shift' 
