@@ -30,7 +30,6 @@ const Scanner = () => {
       setStatusMessage(`Processing ID: ${decodedText}...`);
 
       try {
-        // 1. Get PH Time
         const now = new Date();
         const options = { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
         const formatter = new Intl.DateTimeFormat('en-GB', options);
@@ -40,13 +39,7 @@ const Scanner = () => {
         const m = parseInt(parts.find(p => p.type === 'minute').value);
         const s = parseInt(parts.find(p => p.type === 'second').value);
         const timeStr = `${h}:${m}:${s}`;
-        const currentMinutes = h * 60 + m;
         const localDate = now.toLocaleDateString('en-CA');
-
-        // Business Logic Constants
-        const START_OF_DAY = 480; // 08:00 AM
-        const END_OF_DAY = 1020;  // 05:00 PM
-        const LATE_CUTOFF = 660;  // 11:00 AM
 
         // 2. Verify Employee
         const { data: employee, error: empError } = await supabase
@@ -70,68 +63,64 @@ const Scanner = () => {
           .maybeSingle();
 
         if (existingRecord) {
-          // TIME OUT: Calculate undertime only if scanning between 8am and 5pm
-          let undertime = 0;
-          if (currentMinutes > START_OF_DAY && currentMinutes < END_OF_DAY) {
-            undertime = END_OF_DAY - currentMinutes;
-          }
-          
-          const { error: upErr } = await supabase
-            .from('attendance')
-            .update({ time_out: timeStr, undertime_minutes: undertime })
-            .eq('id', existingRecord.id);
-
-          if (upErr) throw upErr;
+          await supabase.from('attendance').update({ time_out: timeStr }).eq('id', existingRecord.id);
           setStatusMessage(`✅ Time-Out recorded for ${employee.full_name}.`);
-      } else {
-  // TIME IN: Only allow if between 07:00 (420) and 17:00 (1020)
-  if (currentMinutes < 420 || currentMinutes > 1020) {
-    setStatusMessage(`❌ Kiosk is closed. Please scan between 7:00 AM and 5:00 PM.`);
-    setIsProcessing(false);
-    return;
-  }
-
-  const targetIn = 480; // 8:00 AM
-  const late = Math.max(0, currentMinutes - targetIn);
-  
-  const { error: inErr } = await supabase
-    .from('attendance')
-    .insert([{ 
-      employee_id: decodedText, 
-      date: localDate, 
-      time_in: timeStr, 
-      
-      late_minutes: late,
-      day_type: 'Regular', 
-      shift: 'Day Shift' 
-    }]);
-
-  if (inErr) throw inErr;
-  setStatusMessage(`✅ Time-In recorded for ${employee.full_name}.`);
-}
-
+        } else {
+          await supabase.from('attendance').insert([{ 
+            employee_id: decodedText, 
+            date: localDate, 
+            time_in: timeStr, 
+            day_type: 'Regular', 
+            shift: 'Shifting' 
+          }]);
+          setStatusMessage(`✅ Time-In recorded for ${employee.full_name}.`);
+        }
       } catch (err) {
         setStatusMessage("❌ Error: " + err.message);
-        console.error(err);
       } finally {
         setIsProcessing(false);
       }
     }
 
     scanner.render(onScanSuccess, () => {});
-
-    return () => {
-      scanner.clear().catch(console.error);
-    };
+    return () => { scanner.clear().catch(console.error); };
   }, []);
 
   return (
-    <div style={{ padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#1a1a1a', minHeight: '100vh', color: '#ffffff', fontFamily: 'sans-serif' }}>
-      <h2 style={{ color: '#ff4d4d' }}>PHO Attendance Kiosk</h2>
-      <div style={{ padding: '15px', marginBottom: '20px', borderRadius: '8px', backgroundColor: '#333', textAlign: 'center', width: '100%', maxWidth: '450px' }}>
+    <div style={{ 
+      padding: '40px 20px', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      backgroundColor: '#8B0000', // PHO Deep Red
+      minHeight: '100vh', 
+      color: '#ffffff', 
+      fontFamily: 'sans-serif' 
+    }}>
+      <h2 style={{ color: '#ffffff', textTransform: 'uppercase', marginBottom: '20px' }}>PHO Attendance Kiosk</h2>
+      
+      <div style={{ 
+        padding: '20px', 
+        marginBottom: '20px', 
+        borderRadius: '12px', 
+        backgroundColor: '#ffffff', 
+        color: '#8B0000', 
+        textAlign: 'center', 
+        width: '100%', 
+        maxWidth: '450px',
+        fontWeight: 'bold',
+        boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+      }}>
         {statusMessage}
       </div>
-      <div id="reader" style={{ width: '100%', maxWidth: '450px', borderRadius: '12px', overflow: 'hidden' }}></div>
+      
+      <div id="reader" style={{ 
+        width: '100%', 
+        maxWidth: '450px', 
+        borderRadius: '12px', 
+        overflow: 'hidden', 
+        border: '5px solid #ffffff' 
+      }}></div>
     </div>
   );
 };
